@@ -1,0 +1,22 @@
+{
+  "name": "trade-school-grading",
+  "version": "1.0.0",
+  "description": "A grading platform for trade schools",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "npm --prefix server run dev",
+    "client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "test": "npm --prefix server test",
+    "lint": "npm --prefix server run lint && npm --prefix client run lint",
+    "lint:fix": "npm --prefix server run lint -- --fix && npm --prefix client run lint -- --fix",
+    "seed": "npm --prefix server run seed"
+  },
+  "keywords": ["education", "grading", "trade-school"],
+  "author": "Caspian Almerud",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
