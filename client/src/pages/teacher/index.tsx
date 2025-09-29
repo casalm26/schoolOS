@@ -10,9 +10,25 @@ const gradeStatusOptions: { label: string; value: GradeStatus }[] = [
   { label: "Released", value: "released" },
 ];
 
+const gradeStatusStyleMap: Record<GradeStatus, string> = {
+  draft: "border-slate-700 bg-slate-900/80 text-slate-200",
+  pending_release: "border-amber-400/40 bg-amber-400/10 text-amber-200",
+  released: "border-emerald-400/40 bg-emerald-400/10 text-emerald-200",
+};
+
 function formatDate(value?: string) {
   if (!value) return "–";
   return new Date(value).toLocaleDateString();
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "–";
+  return new Date(value).toLocaleString();
+}
+
+function getGradeStatusLabel(status?: GradeStatus) {
+  if (!status) return "No grade";
+  return gradeStatusOptions.find((option) => option.value === status)?.label ?? status;
 }
 
 export default function TeacherWorkspace() {
@@ -197,21 +213,97 @@ export default function TeacherWorkspace() {
     return map;
   }, [grades]);
 
+  const selectedClass = useMemo(
+    () => classes?.find((classItem) => classItem._id === selectedClassId),
+    [classes, selectedClassId],
+  );
+
+  const gradeSummary = useMemo(
+    () =>
+      grades?.reduce(
+        (acc, grade) => {
+          acc.total += 1;
+          if (grade.status === "released") acc.released += 1;
+          if (grade.status === "pending_release") acc.pending += 1;
+          if (grade.status === "draft") acc.draft += 1;
+          return acc;
+        },
+        { total: 0, released: 0, pending: 0, draft: 0 },
+      ) ?? { total: 0, released: 0, pending: 0, draft: 0 },
+    [grades],
+  );
+
+  const nextDueAssignment = useMemo(() => {
+    if (!assignments?.length) return null;
+    const upcoming = [...assignments]
+      .filter((assignment) => Boolean(assignment.dueAt))
+      .sort((a, b) => {
+        const timeA = a.dueAt ? new Date(a.dueAt).getTime() : Number.POSITIVE_INFINITY;
+        const timeB = b.dueAt ? new Date(b.dueAt).getTime() : Number.POSITIVE_INFINITY;
+        return timeA - timeB;
+      });
+    return upcoming[0] ?? null;
+  }, [assignments]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Teacher</p>
-            <h1 className="text-3xl font-semibold">Assignment & grade control</h1>
-            <p className="mt-1 text-sm text-slate-300">
-              Publish work, capture scores, and release grades in one place.
-            </p>
+        <div className="mx-auto max-w-6xl px-6 py-6">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-400">Teacher</p>
+              <h1 className="text-3xl font-semibold">Assignment & grade control</h1>
+              <p className="mt-1 text-sm text-slate-300">
+                Publish work, capture scores, and release grades in one place.
+              </p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 text-sm">
+              <p className="text-xs uppercase tracking-wide text-slate-400">Active class</p>
+              <p className="mt-1 font-semibold text-white">
+                {selectedClass ? selectedClass.title : "No class selected"}
+              </p>
+              <p className="text-xs text-slate-400">
+                {selectedClass ? selectedClass.code : "Choose a class to get started."}
+              </p>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-10">
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-white/10 bg-slate-900/60 p-5">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Roster</p>
+            <p className="mt-2 text-2xl font-semibold text-white">
+              {selectedClass ? (enrollments?.length ?? 0) : "–"}
+            </p>
+            <p className="text-xs text-slate-400">Students enrolled in this class</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-slate-900/60 p-5">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Assignments</p>
+            <p className="mt-2 text-2xl font-semibold text-white">
+              {selectedClass ? (assignments?.length ?? 0) : "–"}
+            </p>
+            <p className="text-xs text-slate-400">Visible to this class</p>
+          </div>
+          <div
+            className={`rounded-xl border bg-slate-900/60 p-5 ${gradeSummary.pending ? "border-amber-400/40" : "border-white/10"}`}
+          >
+            <p className="text-xs uppercase tracking-wide text-slate-400">Pending releases</p>
+            <p className="mt-2 text-2xl font-semibold text-white">{gradeSummary.pending}</p>
+            <p className="text-xs text-slate-400">Grades awaiting release</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-slate-900/60 p-5">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Next due</p>
+            <p className="mt-2 text-2xl font-semibold text-white">
+              {nextDueAssignment ? formatDate(nextDueAssignment.dueAt) : "–"}
+            </p>
+            <p className="text-xs text-slate-400">
+              {nextDueAssignment ? nextDueAssignment.title : "No upcoming deadlines"}
+            </p>
+          </div>
+        </section>
+
         <section className="rounded-xl border border-white/10 bg-slate-900/60 p-6">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex flex-col">
@@ -268,24 +360,36 @@ export default function TeacherWorkspace() {
               <div className="mt-4 space-y-3">
                 {assignments?.length ? (
                   assignments.map((assignment) => (
-                    <div
+                    <button
                       key={assignment._id}
-                      className={`rounded-lg border px-4 py-3 text-sm transition ${selectedAssignmentId === assignment._id ? "border-emerald-400/60 bg-slate-950" : "border-white/5 bg-slate-950/60"}`}
+                      type="button"
+                      onClick={() => setSelectedAssignmentId(assignment._id)}
+                      className={`w-full rounded-lg border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80 ${selectedAssignmentId === assignment._id ? "border-emerald-400/60 bg-slate-950 shadow-[0_0_0_1px_rgba(16,185,129,0.4)]" : "border-white/5 bg-slate-950/60 hover:border-emerald-400/40 hover:bg-slate-900/80"}`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-semibold text-white">
-                            {assignment.title}
-                          </p>
+                        <div className="space-y-1">
+                          <p className="font-semibold text-white">{assignment.title}</p>
                           <p className="text-xs text-slate-400">
                             Due {formatDate(assignment.dueAt)} • {assignment.type}
                           </p>
                         </div>
-                        <span className="rounded-full bg-slate-800 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
+                        <span className="rounded-full border border-white/10 bg-slate-900 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
                           {assignment.gradingSchema}
                         </span>
                       </div>
-                    </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-wide text-slate-400">
+                        <span className="rounded bg-slate-900/80 px-2 py-1">
+                          Max {assignment.maxPoints ?? "—"} pts
+                        </span>
+                        {assignment.publishAt ? (
+                          <span className="rounded bg-slate-900/80 px-2 py-1">
+                            Publishes {formatDate(assignment.publishAt)}
+                          </span>
+                        ) : (
+                          <span className="rounded bg-slate-900/80 px-2 py-1">Publishes immediately</span>
+                        )}
+                      </div>
+                    </button>
                   ))
                 ) : (
                   <p className="text-sm text-slate-400">No assignments created yet.</p>
@@ -299,22 +403,35 @@ export default function TeacherWorkspace() {
                 New assignments become visible to enrolled students immediately after publish date.
               </p>
               <form onSubmit={handleAssignmentCreation} className="mt-4 grid gap-4 md:grid-cols-2">
-                <input
-                  name="title"
-                  placeholder="Assignment title"
-                  className="md:col-span-2 rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
-                />
-                <textarea
-                  name="description"
-                  placeholder="Optional description"
-                  className="md:col-span-2 rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
-                  rows={3}
-                />
+                <div className="md:col-span-2 flex flex-col gap-1">
+                  <label htmlFor="assignment-title" className="text-xs uppercase tracking-wide text-slate-400">
+                    Title
+                  </label>
+                  <input
+                    id="assignment-title"
+                    name="title"
+                    placeholder="Assignment title"
+                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="md:col-span-2 flex flex-col gap-1">
+                  <label htmlFor="assignment-description" className="text-xs uppercase tracking-wide text-slate-400">
+                    Description
+                  </label>
+                  <textarea
+                    id="assignment-description"
+                    name="description"
+                    placeholder="Share expectations or resources"
+                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    rows={3}
+                  />
+                </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs uppercase tracking-wide text-slate-400">
+                  <label htmlFor="assignment-type" className="text-xs uppercase tracking-wide text-slate-400">
                     Type
                   </label>
                   <select
+                    id="assignment-type"
                     name="type"
                     defaultValue="task"
                     className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
@@ -325,10 +442,11 @@ export default function TeacherWorkspace() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs uppercase tracking-wide text-slate-400">
+                  <label htmlFor="assignment-grading" className="text-xs uppercase tracking-wide text-slate-400">
                     Grading
                   </label>
                   <select
+                    id="assignment-grading"
                     name="gradingSchema"
                     defaultValue="points"
                     className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
@@ -339,30 +457,33 @@ export default function TeacherWorkspace() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs uppercase tracking-wide text-slate-400">
+                  <label htmlFor="assignment-due" className="text-xs uppercase tracking-wide text-slate-400">
                     Due date
                   </label>
                   <input
+                    id="assignment-due"
                     type="date"
                     name="dueAt"
                     className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs uppercase tracking-wide text-slate-400">
+                  <label htmlFor="assignment-publish" className="text-xs uppercase tracking-wide text-slate-400">
                     Publish date (optional)
                   </label>
                   <input
+                    id="assignment-publish"
                     type="date"
                     name="publishAt"
                     className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs uppercase tracking-wide text-slate-400">
+                  <label htmlFor="assignment-points" className="text-xs uppercase tracking-wide text-slate-400">
                     Max points
                   </label>
                   <input
+                    id="assignment-points"
                     type="number"
                     name="maxPoints"
                     defaultValue={100}
@@ -392,10 +513,11 @@ export default function TeacherWorkspace() {
                 Enrolled learners appear with their latest grade progress per assignment.
               </p>
               <form onSubmit={handleEnrollStudent} className="mt-4 space-y-3 rounded-lg border border-white/10 bg-slate-950/50 p-4">
-                <label className="text-xs uppercase tracking-wide text-slate-400">
+                <label htmlFor="enrollment-email" className="text-xs uppercase tracking-wide text-slate-400">
                   Enroll by student email
                 </label>
                 <input
+                  id="enrollment-email"
                   name="studentEmail"
                   type="email"
                   placeholder="student@example.com"
@@ -423,22 +545,28 @@ export default function TeacherWorkspace() {
                         key={enrollment._id}
                         className="rounded-lg border border-white/5 bg-slate-950/60 px-4 py-3 text-xs"
                       >
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="font-semibold text-white">
                             {displayName}
                           </span>
-                          <span className="rounded-full bg-slate-800 px-3 py-1 text-[10px] uppercase tracking-wider text-slate-200">
-                            {grade?.status ?? "no grade"}
+                          <span
+                            className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-wider ${grade?.status ? gradeStatusStyleMap[grade.status] : "border-white/10 bg-slate-900/80 text-slate-200"}`}
+                          >
+                            {getGradeStatusLabel(grade?.status)}
                           </span>
                         </div>
-                        {grade?.score !== undefined && grade?.score !== null ? (
-                          <p className="mt-1 text-slate-300">
-                            Score: {grade.score}
-                          </p>
-                        ) : null}
-                        {grade?.feedback ? (
-                          <p className="mt-1 text-slate-400">{grade.feedback}</p>
-                        ) : null}
+                        <div className="mt-2 space-y-1 text-slate-300">
+                          {grade?.score !== undefined && grade?.score !== null ? (
+                            <p>
+                              <span className="text-slate-400">Score:</span> {grade.score}
+                            </p>
+                          ) : (
+                            <p className="text-slate-500">No score recorded yet.</p>
+                          )}
+                          {grade?.feedback ? (
+                            <p className="text-slate-400">{grade.feedback}</p>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })
@@ -454,10 +582,11 @@ export default function TeacherWorkspace() {
               <h2 className="text-lg font-semibold">Capture grade</h2>
               <form onSubmit={handleGradeSubmit} className="mt-4 space-y-4">
                 <div className="space-y-2">
-                  <label className="block text-xs uppercase tracking-wide text-slate-400">
+                  <label htmlFor="grade-student" className="block text-xs uppercase tracking-wide text-slate-400">
                     Student
                   </label>
                   <select
+                    id="grade-student"
                     name="studentId"
                     className="w-full rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
                     defaultValue=""
@@ -475,26 +604,48 @@ export default function TeacherWorkspace() {
                   </select>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <input
-                    type="number"
-                    name="score"
-                    placeholder="Score"
-                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
-                  />
-                  <input
-                    name="letterGrade"
-                    placeholder="Letter grade (optional)"
-                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="grade-score" className="text-xs uppercase tracking-wide text-slate-400">
+                      Score
+                    </label>
+                    <input
+                      id="grade-score"
+                      type="number"
+                      name="score"
+                      placeholder="Score"
+                      className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="grade-letter" className="text-xs uppercase tracking-wide text-slate-400">
+                      Letter grade
+                    </label>
+                    <input
+                      id="grade-letter"
+                      name="letterGrade"
+                      placeholder="Optional"
+                      className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="grade-feedback" className="text-xs uppercase tracking-wide text-slate-400">
+                    Feedback
+                  </label>
+                  <textarea
+                    id="grade-feedback"
+                    name="feedback"
+                    placeholder="Feedback to student"
+                    className="w-full rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    rows={3}
                   />
                 </div>
-                <textarea
-                  name="feedback"
-                  placeholder="Feedback to student"
-                  className="w-full rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
-                  rows={3}
-                />
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="grade-status" className="text-xs uppercase tracking-wide text-slate-400">
+                    Status
+                  </label>
                   <select
+                    id="grade-status"
                     name="status"
                     defaultValue="draft"
                     className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
@@ -521,39 +672,51 @@ export default function TeacherWorkspace() {
               <h2 className="text-lg font-semibold">Recorded grades</h2>
               <div className="mt-4 space-y-3">
                 {grades?.length ? (
-                  grades.map((grade) => (
-                    <div
-                      key={grade._id}
-                      className="space-y-2 rounded-lg border border-white/5 bg-slate-950/60 px-4 py-3 text-xs"
-                    >
-                      <div className="flex items-center justify-between">
+                  grades.map((grade) => {
+                    const lastChange = grade.history?.[grade.history.length - 1]?.changedAt;
+                    return (
+                      <div
+                        key={grade._id}
+                        className="space-y-3 rounded-lg border border-white/5 bg-slate-950/60 px-4 py-4 text-xs"
+                      >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="font-semibold text-white">
                           {grade.student
                             ? `${grade.student.name} • ${grade.student.email}`
                             : grade.studentId}
                         </span>
-                        <span className="rounded-full bg-slate-800 px-3 py-1 text-[10px] uppercase tracking-wider text-slate-200">
-                          {grade.status}
+                        <span
+                          className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-wider ${gradeStatusStyleMap[grade.status]}`}
+                        >
+                          {getGradeStatusLabel(grade.status)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between text-slate-300">
-                        <span>Score: {grade.score ?? "–"}</span>
-                        <span>Letter: {grade.letterGrade ?? "–"}</span>
+                      <div className="grid gap-2 text-slate-300 sm:grid-cols-2">
+                        <div>
+                          <p className="text-slate-400">Score</p>
+                          <p className="text-sm text-white">{grade.score ?? "–"}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Letter</p>
+                          <p className="text-sm text-white">{grade.letterGrade ?? "–"}</p>
+                        </div>
                       </div>
                       {grade.feedback && <p className="text-slate-400">{grade.feedback}</p>}
-                      {grade.releasedAt && (
-                        <p className="text-[10px] uppercase tracking-wide text-slate-500">
-                          Released {new Date(grade.releasedAt).toLocaleString()}
-                        </p>
-                      )}
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                        <span>
+                          {lastChange ? `Updated ${formatDateTime(lastChange)}` : "Awaiting updates"}
+                        </span>
+                        {grade.releasedAt ? <span>Released {formatDateTime(grade.releasedAt)}</span> : <span>Not released</span>}
+                      </div>
                       <button
+                        type="button"
                         onClick={() =>
                           releaseGrade.mutate({
                             gradeId: grade._id,
                           })
                         }
                         disabled={releaseGrade.isPending || grade.status === "released"}
-                        className="w-full rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-black transition hover:bg-emerald-400 disabled:opacity-50"
+                        className="w-full rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {grade.status === "released"
                           ? "Grade released"
@@ -562,7 +725,8 @@ export default function TeacherWorkspace() {
                             : "Release grade"}
                       </button>
                     </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <p className="text-sm text-slate-400">No grades captured yet.</p>
                 )}
