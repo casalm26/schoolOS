@@ -24,8 +24,17 @@ export class GradesService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  async upsertGrade(assignmentId: string, dto: UpsertGradeDto & { actorId?: string }) {
-    const assignment = await this.assignmentsService.findById(assignmentId);
+  async upsertGrade(
+    assignmentId: string,
+    dto: UpsertGradeDto & { actorId?: string },
+    options: { restrictToInstructorId?: string } = {},
+  ) {
+    const assignment = options.restrictToInstructorId
+      ? await this.assignmentsService.ensureInstructorAccess(
+          assignmentId,
+          options.restrictToInstructorId,
+        )
+      : await this.assignmentsService.findById(assignmentId);
     await this.usersService.findById(dto.studentId);
 
     const enrollment = await this.enrollmentModel
@@ -69,8 +78,18 @@ export class GradesService {
     return grade;
   }
 
-  async listGradesForAssignment(assignmentId: string) {
-    await this.assignmentsService.findById(assignmentId);
+  async listGradesForAssignment(
+    assignmentId: string,
+    options: { restrictToInstructorId?: string } = {},
+  ) {
+    if (options.restrictToInstructorId) {
+      await this.assignmentsService.ensureInstructorAccess(
+        assignmentId,
+        options.restrictToInstructorId,
+      );
+    } else {
+      await this.assignmentsService.findById(assignmentId);
+    }
     const grades = await this.gradeModel.find({ assignmentId }).lean().exec();
     if (!grades.length) {
       return [];
@@ -93,7 +112,11 @@ export class GradesService {
     return this.gradeModel.find({ studentId }).lean().exec();
   }
 
-  async releaseGrade(gradeId: string, dto: ReleaseGradeDto & { actorId?: string }) {
+  async releaseGrade(
+    gradeId: string,
+    dto: ReleaseGradeDto & { actorId?: string },
+    options: { restrictToInstructorId?: string } = {},
+  ) {
     if (!isValidObjectId(gradeId)) {
       throw new NotFoundException('Grade not found');
     }
@@ -101,6 +124,13 @@ export class GradesService {
     const grade = await this.gradeModel.findById(gradeId).exec();
     if (!grade) {
       throw new NotFoundException('Grade not found');
+    }
+
+    if (options.restrictToInstructorId) {
+      await this.assignmentsService.ensureInstructorAccess(
+        grade.assignmentId.toString(),
+        options.restrictToInstructorId,
+      );
     }
 
     const releaseAt = dto.releaseAt ? new Date(dto.releaseAt) : new Date();

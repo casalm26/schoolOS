@@ -20,14 +20,25 @@ export class GradesController {
     @Body() dto: UpsertGradeDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.gradesService.upsertGrade(assignmentId, { ...dto, actorId: user.userId });
+    const options =
+      user.role === UserRole.Teacher
+        ? { restrictToInstructorId: user.userId }
+        : undefined;
+    return this.gradesService.upsertGrade(assignmentId, { ...dto, actorId: user.userId }, options);
   }
 
   @Get('assignments/:assignmentId/grades')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.Admin, UserRole.Teacher)
-  listGrades(@Param('assignmentId') assignmentId: string) {
-    return this.gradesService.listGradesForAssignment(assignmentId);
+  listGrades(
+    @Param('assignmentId') assignmentId: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    const options =
+      user.role === UserRole.Teacher
+        ? { restrictToInstructorId: user.userId }
+        : undefined;
+    return this.gradesService.listGradesForAssignment(assignmentId, options);
   }
 
   @Post('grades/:gradeId/release')
@@ -38,10 +49,18 @@ export class GradesController {
     @Body() dto: ReleaseGradeDto,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.gradesService.releaseGrade(gradeId, {
-      ...dto,
-      actorId: user.userId,
-    });
+    const options =
+      user.role === UserRole.Teacher
+        ? { restrictToInstructorId: user.userId }
+        : undefined;
+    return this.gradesService.releaseGrade(
+      gradeId,
+      {
+        ...dto,
+        actorId: user.userId,
+      },
+      options,
+    );
   }
 
   @Get('students/:studentId/grades')
