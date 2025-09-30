@@ -47,6 +47,10 @@ These entities are linked strictly through IDs, keeping the data model lean whil
    - Request: `POST /api/grades/:gradeId/release`
    - Ownership check ensures teachers can only release grades for their classes. Release triggers NotificationsService to inform students.
 
+9. **Review Gradebook**
+   - Request: `GET /api/assignments/:assignmentId/grades`
+   - Returns every enrolled student with their profile, enrollment details, and current grade status (defaulting to `pending` when ungraded) so teachers can chase outstanding work without cross-referencing rosters.
+
 ## Student Journey
 
 1. **Authenticate**
@@ -54,12 +58,12 @@ These entities are linked strictly through IDs, keeping the data model lean whil
    - Returns JWT + profile (role = `student`).
 
 2. **See Personal Assignment Feed**
-   - Request: `GET /api/students/:studentId/assignments`
-   - Guard ensures students can only access their own ID. Response merges assignments from enrolled classes with grade status, due dates, and feedback.
+   - Request: `GET /api/students/me/assignments` (fallback: `GET /api/students/:studentId/assignments` for admin/teacher support)
+   - Guard ensures students can only access their own ID. Response merges assignments from enrolled classes with grade status, due dates, inline class metadata (title, code, primary instructor), and feedback.
 
 3. **Review Grades**
-   - Request: `GET /api/students/:studentId/grades`
-   - Provides the grade ledger for transcripts and historical context.
+   - Request: `GET /api/students/me/grades` (fallback: `GET /api/students/:studentId/grades` when querying on behalf of a student)
+   - Provides the grade ledger for transcripts and historical context without requiring clients to look up the student ID.
 
 4. **Class Visibility (Optional)**
    - A student’s classes are implicit via enrolments surfaced in assignment data. Additional roster visibility can be added later if needed, but the streamlined view keeps the dashboard focused on what matters now: upcoming work and released feedback.
@@ -67,7 +71,8 @@ These entities are linked strictly through IDs, keeping the data model lean whil
 ## Structural Improvements Introduced
 
 - **Instructor-scoped operations** – Teachers can now only list classes, manage enrolments, publish assignments, and adjust grades for classes they own. This keeps the workflow focused and prevents accidental cross-class edits.
-- **Shared guard helper** – `ClassesService.ensureInstructorAccess` centralises the access rule so assignments and grades reuse the same logic, reducing drift.
-- **Documented journey** – This page provides a canonical flow reference for onboarding and future product work.
+- **Roster-backed gradebook** – `GET /api/assignments/:assignmentId/grades` now returns every enrolled student with their latest grade status so teachers see pending work alongside completed assessments.
+- **Self-service student routes** – `/api/students/me/assignments` and `/api/students/me/grades` let the client reuse the authenticated session without juggling IDs.
+- **Context-rich student feed** – Assignment overview responses embed class titles, codes, and lead instructor details so student dashboards stay self-contained.
 
 These changes ensure teachers and students land in purpose-built workspaces that only surface the data they own, reinforcing a “dead simple” experience without compromising data boundaries.

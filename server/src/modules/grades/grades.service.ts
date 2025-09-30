@@ -4,6 +4,7 @@ import { Model, isValidObjectId } from 'mongoose';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { Assignment, AssignmentDocument } from '../assignments/schemas/assignment.schema';
 import { Enrollment, EnrollmentDocument } from '../classes/schemas/enrollment.schema';
+import { ClassEntity, ClassDocument } from '../classes/schemas/class.schema';
 import { UsersService } from '../users/users.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ReleaseGradeDto } from './dto/release-grade.dto';
@@ -19,6 +20,8 @@ export class GradesService {
     private readonly assignmentModel: Model<AssignmentDocument>,
     @InjectModel(Enrollment.name)
     private readonly enrollmentModel: Model<EnrollmentDocument>,
+    @InjectModel(ClassEntity.name)
+    private readonly classModel: Model<ClassDocument>,
     private readonly assignmentsService: AssignmentsService,
     private readonly usersService: UsersService,
     private readonly notificationsService: NotificationsService,
@@ -82,29 +85,68 @@ export class GradesService {
     assignmentId: string,
     options: { restrictToInstructorId?: string } = {},
   ) {
-    if (options.restrictToInstructorId) {
-      await this.assignmentsService.ensureInstructorAccess(
-        assignmentId,
-        options.restrictToInstructorId,
-      );
-    } else {
-      await this.assignmentsService.findById(assignmentId);
-    }
-    const grades = await this.gradeModel.find({ assignmentId }).lean().exec();
-    if (!grades.length) {
+    const assignment = options.restrictToInstructorId
+      ? await this.assignmentsService.ensureInstructorAccess(
+          assignmentId,
+          options.restrictToInstructorId,
+        )
+      : await this.assignmentsService.findById(assignmentId);
+
+    const [grades, enrollments] = await Promise.all([
+      this.gradeModel.find({ assignmentId }).lean().exec(),
+      this.enrollmentModel
+        .find({ classId: assignment.classId })
+        .lean()
+        .exec(),
+    ]);
+
+    const enrollmentByStudentId = new Map(
+      enrollments.map((enrollment) => [
+        enrollment.studentId.toString(),
+        enrollment,
+      ]),
+    );
+
+    const gradeByStudentId = new Map(
+      grades.map((grade) => [grade.studentId.toString(), grade]),
+    );
+
+    const allStudentIds = new Set<string>();
+    enrollments.forEach((enrollment) =>
+      allStudentIds.add(enrollment.studentId.toString()),
+    );
+    grades.forEach((grade) => allStudentIds.add(grade.studentId.toString()));
+
+    if (allStudentIds.size === 0) {
       return [];
     }
 
-    const studentIds = Array.from(
-      new Set(grades.map((grade) => grade.studentId.toString())),
+    const students = await this.usersService.findManyByIds(Array.from(allStudentIds));
+    const studentsById = new Map(
+      students.map((student) => [student._id.toString(), student]),
     );
-    const students = await this.usersService.findManyByIds(studentIds);
-    const studentsById = new Map(students.map((student) => [student._id.toString(), student]));
 
-    return grades.map((grade) => ({
-      ...grade,
-      student: studentsById.get(grade.studentId.toString()) ?? null,
-    }));
+    return Array.from(allStudentIds)
+      .sort((a, b) => {
+        const studentA = studentsById.get(a);
+        const studentB = studentsById.get(b);
+        if (studentA?.name && studentB?.name) {
+          return studentA.name.localeCompare(studentB.name);
+        }
+        if (studentA?.name) return -1;
+        if (studentB?.name) return 1;
+        return a.localeCompare(b);
+      })
+      .map((studentId) => {
+        const grade = gradeByStudentId.get(studentId) ?? null;
+        return {
+          studentId,
+          student: studentsById.get(studentId) ?? null,
+          enrollment: enrollmentByStudentId.get(studentId) ?? null,
+          status: grade?.status ?? GradeStatus.Pending,
+          grade,
+        };
+      });
   }
 
   async listGradesForStudent(studentId: string) {
@@ -198,10 +240,46 @@ export class GradesService {
       gradeMap.set(String(grade.assignmentId), grade);
     });
 
+    const uniqueClassIds = Array.from(
+      new Set(classIds.map((classId) => classId.toString())),
+    );
+
+    const classes = await this.classModel
+      .find({ _id: { $in: uniqueClassIds } })
+      .lean()
+      .exec();
+
+    const classById = new Map(
+      classes.map((classEntity) => [classEntity._id.toString(), classEntity]),
+    );
+
+    const instructorIds = Array.from(
+      new Set(
+        classes
+          .flatMap((classEntity) => classEntity.instructorIds ?? [])
+          .map((id) => id?.toString())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const instructors = instructorIds.length
+      ? await this.usersService.findManyByIds(instructorIds)
+      : [];
+    const instructorsById = new Map(
+      instructors.map((instructor) => [instructor._id.toString(), instructor]),
+    );
+
     return assignments
       .sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime())
       .map((assignment) => {
         const grade = gradeMap.get(String(assignment._id)) ?? null;
+        const classEntity = classById.get(String(assignment.classId));
+        const primaryInstructorId = classEntity?.instructorIds?.[0]
+          ? classEntity.instructorIds[0].toString()
+          : null;
+        const primaryInstructor = primaryInstructorId
+          ? instructorsById.get(primaryInstructorId) ?? null
+          : null;
         return {
           assignmentId: String(assignment._id),
           classId: String(assignment.classId),
@@ -213,6 +291,20 @@ export class GradesService {
           maxPoints: assignment.maxPoints,
           status: grade ? grade.status : GradeStatus.Pending,
           grade,
+          class: classEntity
+            ? {
+                classId: classEntity._id.toString(),
+                title: classEntity.title,
+                code: classEntity.code,
+                primaryInstructor: primaryInstructor
+                  ? {
+                      id: primaryInstructor._id.toString(),
+                      name: primaryInstructor.name,
+                      email: primaryInstructor.email,
+                    }
+                  : null,
+              }
+            : null,
         };
       });
   }
