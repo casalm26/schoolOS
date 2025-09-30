@@ -1,5 +1,31 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001/api";
+const DEFAULT_LOCAL_API_BASE = "http://localhost:3001/api";
+
+const isLocalHostname = (hostname: string) =>
+  ["localhost", "127.0.0.1", "0.0.0.0"].includes(hostname);
+
+let cachedApiBaseUrl: string | null = null;
+
+const resolveApiBaseUrl = () => {
+  if (cachedApiBaseUrl) {
+    return cachedApiBaseUrl;
+  }
+
+  const configuredBase = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+  if (configuredBase) {
+    cachedApiBaseUrl = configuredBase;
+    return cachedApiBaseUrl;
+  }
+
+  if (typeof window !== "undefined") {
+    const { origin, hostname } = window.location;
+    cachedApiBaseUrl = isLocalHostname(hostname)
+      ? DEFAULT_LOCAL_API_BASE
+      : `${origin.replace(/\/$/, "")}/api`;
+    return cachedApiBaseUrl;
+  }
+
+  return DEFAULT_LOCAL_API_BASE;
+};
 
 let authTokenGetter: (() => string | null) | null = null;
 
@@ -16,7 +42,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const baseUrl = resolveApiBaseUrl();
+  const response = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers,
   });
