@@ -1,8 +1,9 @@
-import type { FormEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/router";
 import { Assignment, Grade, GradeStatus, api } from "@/lib/api";
+import type { User } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
 const gradeStatusOptions: { label: string; value: GradeStatus }[] = [
@@ -30,6 +31,24 @@ function formatDateTime(value?: string) {
 function getGradeStatusLabel(status?: GradeStatus) {
   if (!status) return "No grade";
   return gradeStatusOptions.find((option) => option.value === status)?.label ?? status;
+}
+
+function EmptyState({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/10 bg-slate-950/40 p-6 text-center text-sm text-slate-400">
+      <p className="font-semibold text-white">{title}</p>
+      {description ? <p className="text-xs text-slate-400">{description}</p> : null}
+      {action ? <div className="mt-2">{action}</div> : null}
+    </div>
+  );
 }
 
 export default function TeacherWorkspace() {
@@ -66,6 +85,9 @@ export default function TeacherWorkspace() {
   const [bundleNotes, setBundleNotes] = useState("");
 
   const [activeGroupTab, setActiveGroupTab] = useState<"students" | "graders" | "bundles">("students");
+
+  const extractSelectedValues = (event: ChangeEvent<HTMLSelectElement>) =>
+    Array.from(event.target.selectedOptions, (option) => option.value);
 
   useEffect(() => {
     if (!loading && (!user || (user.role !== "teacher" && user.role !== "admin"))) {
@@ -129,6 +151,62 @@ export default function TeacherWorkspace() {
     enabled: Boolean(selectedClassId && user),
   });
 
+  useEffect(() => {
+    if (!studentGroups?.length) {
+      setSelectedStudentGroupId("");
+      setSelectedStudentGroupMembers([]);
+      return;
+    }
+
+    const current =
+      studentGroups.find((group) => group._id === selectedStudentGroupId) ?? studentGroups[0];
+
+    if (current._id !== selectedStudentGroupId) {
+      setSelectedStudentGroupId(current._id);
+    }
+
+    setSelectedStudentGroupMembers(current.memberIds ?? []);
+  }, [studentGroups, selectedStudentGroupId]);
+
+  useEffect(() => {
+    if (!graderGroups?.length) {
+      setSelectedGraderGroupId("");
+      setSelectedGraderGroupGraders([]);
+      return;
+    }
+
+    const current =
+      graderGroups.find((group) => group._id === selectedGraderGroupId) ?? graderGroups[0];
+
+    if (current._id !== selectedGraderGroupId) {
+      setSelectedGraderGroupId(current._id);
+    }
+
+    setSelectedGraderGroupGraders(current.graderIds ?? []);
+  }, [graderGroups, selectedGraderGroupId]);
+
+  useEffect(() => {
+    if (!studentGroups?.length) {
+      setSelectedBundleStudentGroupId("");
+      return;
+    }
+
+    if (!studentGroups.some((group) => group._id === selectedBundleStudentGroupId)) {
+      setSelectedBundleStudentGroupId(studentGroups[0]._id);
+    }
+  }, [studentGroups, selectedBundleStudentGroupId]);
+
+  useEffect(() => {
+    if (!graderGroups?.length) {
+      setSelectedBundleGraderGroupId("");
+      return;
+    }
+
+    if (!graderGroups.some((group) => group._id === selectedBundleGraderGroupId)) {
+      setSelectedBundleGraderGroupId(graderGroups[0]._id);
+    }
+  }, [graderGroups, selectedBundleGraderGroupId]);
+
   const { data: cohorts } = useQuery({
     queryKey: ["cohorts", "all"],
     queryFn: () => api.getCohorts(),
@@ -145,7 +223,12 @@ export default function TeacherWorkspace() {
 
   const createClassMutation = useMutation({
     mutationFn: (payload: { cohortId: string; title: string; code: string }) =>
-      api.createClass(payload),
+      api.createClass({
+        cohortId: payload.cohortId,
+        title: payload.title,
+        code: payload.code,
+        instructorIds: user ? [user._id] : [],
+      }),
     onSuccess: (newClass) => {
       queryClient.invalidateQueries({ queryKey: ["classes"] });
       setSelectedClassId(newClass._id);
@@ -260,6 +343,11 @@ export default function TeacherWorkspace() {
     event.preventDefault();
     setClassFormError(null);
 
+    if (!user) {
+      setClassFormError("You must be signed in to create a class");
+      return;
+    }
+
     if (!newClassTitle.trim() || !newClassCode.trim()) {
       setClassFormError("Class title and code are required");
       return;
@@ -296,7 +384,7 @@ export default function TeacherWorkspace() {
 
     createAssignment.mutate({
       title,
-      description: String(formData.get("description") ?? "") or undefined,
+      description: String(formData.get("description") ?? "") || undefined,
       type: formData.get("type") as Assignment["type"],
       dueAt,
       publishAt: String(formData.get("publishAt") ?? "") || undefined,
@@ -471,6 +559,14 @@ export default function TeacherWorkspace() {
     [classes, selectedClassId],
   );
 
+  const instructorOptions = useMemo(
+    () =>
+      (selectedClass?.instructors ?? []).filter(
+        (instructor): instructor is Pick<User, "_id" | "name" | "email"> => Boolean(instructor),
+      ),
+    [selectedClass],
+  );
+
   const gradeSummary = useMemo(
     () =>
       grades?.reduce(
@@ -498,6 +594,18 @@ export default function TeacherWorkspace() {
     return upcoming[0] ?? null;
   }, [assignments]);
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+        Loading teacher workspace...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
@@ -521,7 +629,7 @@ export default function TeacherWorkspace() {
             </div>
           </div>
           <div className="rounded-full border border-white/10 bg-slate-900/70 px-4 py-2 text-sm text-slate-300">
-            Signed in as <span className="text-white">{user.name ?? user.email}</span>
+            Signed in as <span className="text-white">{user?.name ?? user?.email ?? ""}</span>
           </div>
         </div>
       </header>
@@ -600,6 +708,495 @@ export default function TeacherWorkspace() {
               </select>
             </div>
           </div>
+        </section>
+
+        <section className="rounded-xl border border-white/10 bg-slate-900/60 p-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Create a class</h2>
+              <p className="text-sm text-slate-300">
+                Launch a fresh class, connect it to an existing cohort, and you will be added as the
+                default instructor.
+              </p>
+            </div>
+            <p className="text-xs uppercase tracking-wide text-slate-400">
+              {availableCohorts.length ? `${availableCohorts.length} cohort${availableCohorts.length === 1 ? "" : "s"}` : "No cohorts available"}
+            </p>
+          </div>
+          <form onSubmit={handleCreateClass} className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="md:col-span-2 flex flex-col gap-1">
+              <label htmlFor="class-title" className="text-xs uppercase tracking-wide text-slate-400">
+                Class title
+              </label>
+              <input
+                id="class-title"
+                name="title"
+                value={newClassTitle}
+                onChange={(event) => setNewClassTitle(event.target.value)}
+                placeholder="e.g. Algebra II"
+                className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="class-code" className="text-xs uppercase tracking-wide text-slate-400">
+                Class code
+              </label>
+              <input
+                id="class-code"
+                name="code"
+                value={newClassCode}
+                onChange={(event) => setNewClassCode(event.target.value)}
+                placeholder="e.g. ALG-204"
+                className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="class-cohort" className="text-xs uppercase tracking-wide text-slate-400">
+                Cohort
+              </label>
+              <select
+                id="class-cohort"
+                name="cohort"
+                value={newClassCohortId}
+                onChange={(event) => setNewClassCohortId(event.target.value)}
+                disabled={!availableCohorts.length}
+                className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+              >
+                {availableCohorts.length ? (
+                  availableCohorts.map((cohort) => (
+                    <option key={cohort._id} value={cohort._id}>
+                      {cohort.label}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No cohorts available</option>
+                )}
+              </select>
+            </div>
+            {classFormError ? (
+              <p className="md:col-span-2 lg:col-span-4 text-sm text-red-400">{classFormError}</p>
+            ) : null}
+            <button
+              type="submit"
+              disabled={createClassMutation.isPending || !availableCohorts.length}
+              className="md:col-span-2 lg:col-span-1 rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {createClassMutation.isPending ? "Creating…" : "Create class"}
+            </button>
+          </form>
+        </section>
+
+        <section className="rounded-xl border border-white/10 bg-slate-900/60 p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Groups & bundles</h2>
+              <p className="text-sm text-slate-300">
+                Organize students and graders for collaborative evaluation workflows.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/40 p-1 text-xs">
+              {([
+                { value: "students", label: "Student groups" },
+                { value: "graders", label: "Grader groups" },
+                { value: "bundles", label: "Bundles" },
+              ] as const).map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  onClick={() => setActiveGroupTab(tab.value)}
+                  className={`rounded-full px-4 py-2 font-medium transition ${
+                    activeGroupTab === tab.value
+                      ? "bg-emerald-500 text-black"
+                      : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {activeGroupTab === "students" ? (
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <form
+                onSubmit={handleCreateStudentGroup}
+                className="rounded-lg border border-white/10 bg-slate-950/60 p-4 space-y-3"
+              >
+                <h3 className="text-sm font-semibold text-white">New student group</h3>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="student-group-name" className="text-xs uppercase tracking-wide text-slate-400">
+                    Group name
+                  </label>
+                  <input
+                    id="student-group-name"
+                    value={newStudentGroupName}
+                    onChange={(event) => setNewStudentGroupName(event.target.value)}
+                    placeholder="e.g. Project Team A"
+                    className="rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="student-group-members" className="text-xs uppercase tracking-wide text-slate-400">
+                    Members
+                  </label>
+                  <select
+                    id="student-group-members"
+                    multiple
+                    value={newStudentGroupMembers}
+                    onChange={(event) => setNewStudentGroupMembers(extractSelectedValues(event))}
+                    className="h-32 rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                  >
+                    {enrollments?.map((enrollment) => (
+                      <option key={enrollment._id} value={enrollment.studentId}>
+                        {enrollment.student
+                          ? `${enrollment.student.name} • ${enrollment.student.email}`
+                          : enrollment.studentId}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {studentGroupError ? (
+                  <p className="text-xs text-red-400">{studentGroupError}</p>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={createStudentGroupMutation.isPending}
+                  className="w-full rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {createStudentGroupMutation.isPending ? "Creating…" : "Create group"}
+                </button>
+              </form>
+
+              <div className="space-y-4">
+                <form
+                  onSubmit={handleUpdateStudentGroupMembers}
+                  className="rounded-lg border border-white/10 bg-slate-950/60 p-4 space-y-3"
+                >
+                  <h3 className="text-sm font-semibold text-white">Update membership</h3>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="student-group-select" className="text-xs uppercase tracking-wide text-slate-400">
+                      Select group
+                    </label>
+                    <select
+                      id="student-group-select"
+                      value={selectedStudentGroupId}
+                      onChange={(event) => {
+                        setSelectedStudentGroupId(event.target.value);
+                        const group = studentGroups?.find((item) => item._id === event.target.value);
+                        if (group) {
+                          setSelectedStudentGroupMembers(group.memberIds ?? []);
+                        }
+                      }}
+                      className="rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                    >
+                      {studentGroups?.map((group) => (
+                        <option key={group._id} value={group._id}>
+                          {group.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="student-group-edit-members" className="text-xs uppercase tracking-wide text-slate-400">
+                      Members
+                    </label>
+                    <select
+                      id="student-group-edit-members"
+                      multiple
+                      value={selectedStudentGroupMembers}
+                      onChange={(event) => setSelectedStudentGroupMembers(extractSelectedValues(event))}
+                      className="h-32 rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                    >
+                      {enrollments?.map((enrollment) => (
+                        <option key={enrollment._id} value={enrollment.studentId}>
+                          {enrollment.student
+                            ? `${enrollment.student.name} • ${enrollment.student.email}`
+                            : enrollment.studentId}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {studentGroupError ? (
+                    <p className="text-xs text-red-400">{studentGroupError}</p>
+                  ) : null}
+                  <button
+                    type="submit"
+                    disabled={updateStudentGroupMembersMutation.isPending}
+                    className="w-full rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {updateStudentGroupMembersMutation.isPending ? "Saving…" : "Save changes"}
+                  </button>
+                </form>
+
+                <div className="space-y-2">
+                  {studentGroups?.length ? (
+                    studentGroups.map((group) => (
+                      <div key={group._id} className="rounded-lg border border-white/10 bg-slate-950/50 p-3 text-xs text-slate-300">
+                        <p className="font-semibold text-white">{group.name}</p>
+                        <p className="mt-1">Members:</p>
+                        <ul className="mt-1 list-inside list-disc space-y-1">
+                          {(group.members?.length ? group.members : group.memberIds)?.map((member, index) => {
+                            if (typeof member === "string") {
+                              return <li key={`member-${group._id}-${member}`}>{member}</li>;
+                            }
+
+                            const resolvedMember = member as Pick<User, "_id" | "name" | "email"> | null;
+                            if (!resolvedMember) {
+                              return <li key={`member-${group._id}-${index}`}>Unknown</li>;
+                            }
+
+                            return (
+                              <li key={resolvedMember._id}>
+                                {resolvedMember.name} • {resolvedMember.email}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState
+                      title="No student groups"
+                      description="Create a group to coordinate collaborative or differentiated work."
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {activeGroupTab === "graders" ? (
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <form
+                onSubmit={handleCreateGraderGroup}
+                className="rounded-lg border border-white/10 bg-slate-950/60 p-4 space-y-3"
+              >
+                <h3 className="text-sm font-semibold text-white">New grader group</h3>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="grader-group-name" className="text-xs uppercase tracking-wide text-slate-400">
+                    Group name
+                  </label>
+                  <input
+                    id="grader-group-name"
+                    value={newGraderGroupName}
+                    onChange={(event) => setNewGraderGroupName(event.target.value)}
+                    placeholder="e.g. Staff Reviewers"
+                    className="rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="grader-group-members" className="text-xs uppercase tracking-wide text-slate-400">
+                    Graders
+                  </label>
+                  <select
+                    id="grader-group-members"
+                    multiple
+                    value={newGraderGroupGraders}
+                    onChange={(event) => setNewGraderGroupGraders(extractSelectedValues(event))}
+                    className="h-32 rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                  >
+                    {instructorOptions.map((instructor) => (
+                      <option key={instructor._id} value={instructor._id}>
+                        {instructor.name} • {instructor.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {graderGroupError ? (
+                  <p className="text-xs text-red-400">{graderGroupError}</p>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={createGraderGroupMutation.isPending || !instructorOptions.length}
+                  className="w-full rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {createGraderGroupMutation.isPending ? "Creating…" : "Create grader group"}
+                </button>
+              </form>
+
+              <div className="space-y-4">
+                <form
+                  onSubmit={handleUpdateGraderGroup}
+                  className="rounded-lg border border-white/10 bg-slate-950/60 p-4 space-y-3"
+                >
+                  <h3 className="text-sm font-semibold text-white">Update grader assignments</h3>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="grader-group-select" className="text-xs uppercase tracking-wide text-slate-400">
+                      Select group
+                    </label>
+                    <select
+                      id="grader-group-select"
+                      value={selectedGraderGroupId}
+                      onChange={(event) => {
+                        setSelectedGraderGroupId(event.target.value);
+                        const group = graderGroups?.find((item) => item._id === event.target.value);
+                        if (group) {
+                          setSelectedGraderGroupGraders(group.graderIds ?? []);
+                        }
+                      }}
+                      className="rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                    >
+                      {graderGroups?.map((group) => (
+                        <option key={group._id} value={group._id}>
+                          {group.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="grader-group-edit" className="text-xs uppercase tracking-wide text-slate-400">
+                      Graders
+                    </label>
+                    <select
+                      id="grader-group-edit"
+                      multiple
+                      value={selectedGraderGroupGraders}
+                      onChange={(event) => setSelectedGraderGroupGraders(extractSelectedValues(event))}
+                      className="h-32 rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                    >
+                      {instructorOptions.map((instructor) => (
+                        <option key={instructor._id} value={instructor._id}>
+                          {instructor.name} • {instructor.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {graderGroupError ? (
+                    <p className="text-xs text-red-400">{graderGroupError}</p>
+                  ) : null}
+                  <button
+                    type="submit"
+                    disabled={updateGraderGroupMutation.isPending || !instructorOptions.length}
+                    className="w-full rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {updateGraderGroupMutation.isPending ? "Saving…" : "Save changes"}
+                  </button>
+                </form>
+
+                <div className="space-y-2">
+                  {graderGroups?.length ? (
+                    graderGroups.map((group) => (
+                      <div key={group._id} className="rounded-lg border border-white/10 bg-slate-950/50 p-3 text-xs text-slate-300">
+                        <p className="font-semibold text-white">{group.name}</p>
+                        <p className="mt-1">Graders:</p>
+                        <ul className="mt-1 list-inside list-disc space-y-1">
+                          {(group.graders?.length ? group.graders : group.graderIds)?.map((grader, index) => {
+                            if (typeof grader === "string") {
+                              return <li key={`grader-${group._id}-${grader}`}>{grader}</li>;
+                            }
+
+                            const resolvedGrader = grader as Pick<User, "_id" | "name" | "email"> | null;
+                            if (!resolvedGrader) {
+                              return <li key={`grader-${group._id}-${index}`}>Unknown</li>;
+                            }
+
+                            return (
+                              <li key={resolvedGrader._id}>
+                                {resolvedGrader.name} • {resolvedGrader.email}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState
+                      title="No grader groups"
+                      description="Add graders to split review workload across staff."
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {activeGroupTab === "bundles" ? (
+            <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_1fr]">
+              <form
+                onSubmit={handleCreateBundle}
+                className="rounded-lg border border-white/10 bg-slate-950/60 p-4 space-y-3"
+              >
+                <h3 className="text-sm font-semibold text-white">Bundle groups</h3>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="bundle-student-group" className="text-xs uppercase tracking-wide text-slate-400">
+                    Student group
+                  </label>
+                  <select
+                    id="bundle-student-group"
+                    value={selectedBundleStudentGroupId}
+                    onChange={(event) => setSelectedBundleStudentGroupId(event.target.value)}
+                    className="rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                  >
+                    {studentGroups?.map((group) => (
+                      <option key={group._id} value={group._id}>
+                        {group.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="bundle-grader-group" className="text-xs uppercase tracking-wide text-slate-400">
+                    Grader group
+                  </label>
+                  <select
+                    id="bundle-grader-group"
+                    value={selectedBundleGraderGroupId}
+                    onChange={(event) => setSelectedBundleGraderGroupId(event.target.value)}
+                    className="rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                  >
+                    {graderGroups?.map((group) => (
+                      <option key={group._id} value={group._id}>
+                        {group.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="bundle-notes" className="text-xs uppercase tracking-wide text-slate-400">
+                    Notes (optional)
+                  </label>
+                  <textarea
+                    id="bundle-notes"
+                    value={bundleNotes}
+                    onChange={(event) => setBundleNotes(event.target.value)}
+                    rows={3}
+                    className="rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-sm"
+                    placeholder="Clarify the review focus for this bundle"
+                  />
+                </div>
+                {bundleError ? <p className="text-xs text-red-400">{bundleError}</p> : null}
+                <button
+                  type="submit"
+                  disabled={createBundleMutation.isPending || !studentGroups?.length || !graderGroups?.length}
+                  className="w-full rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {createBundleMutation.isPending ? "Linking…" : "Create bundle"}
+                </button>
+              </form>
+
+              <div className="space-y-3">
+                {groupBundles?.length ? (
+                  groupBundles.map((bundle) => (
+                    <div key={bundle._id} className="rounded-lg border border-white/10 bg-slate-950/50 p-4 text-xs text-slate-300">
+                      <p className="font-semibold text-white">Bundle</p>
+                      <p className="mt-2">
+                        <span className="text-slate-400">Student group:</span> {bundle.studentGroup?.name ?? bundle.studentGroupId}
+                      </p>
+                      <p>
+                        <span className="text-slate-400">Grader group:</span> {bundle.graderGroup?.name ?? bundle.graderGroupId}
+                      </p>
+                      {bundle.notes ? <p className="mt-2 text-slate-400">{bundle.notes}</p> : null}
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState
+                    title="No bundles configured"
+                    description="Pair student and grader groups to streamline the review queue."
+                  />
+                )}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
