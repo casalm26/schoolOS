@@ -1,12 +1,4 @@
-import {
-  ArrayNotEmpty,
-  ArrayUnique,
-  IsArray,
-  IsMongoId,
-  IsObject,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { ArrayUnique, IsArray, IsMongoId, IsObject, IsOptional, IsString } from 'class-validator';
 
 export class CreateClassDto {
   @IsMongoId()
@@ -18,11 +10,11 @@ export class CreateClassDto {
   @IsString()
   code!: string;
 
+  @IsOptional()
   @IsArray()
-  @ArrayNotEmpty()
   @ArrayUnique()
   @IsMongoId({ each: true })
-  instructorIds!: string[];
+  instructorIds?: string[];
 
   @IsOptional()
   @IsObject()

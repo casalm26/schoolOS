@@ -88,6 +88,7 @@ export interface ClassEntity {
   code: string;
   instructorIds: string[];
   scheduleMeta?: Record<string, unknown>;
+  instructors?: Array<Pick<User, "_id" | "name" | "email"> | null>;
 }
 
 export type AssignmentType = "project" | "task" | "test";
@@ -135,6 +136,34 @@ export interface Enrollment {
   studentId: string;
   status: string;
   student?: Pick<User, "_id" | "name" | "email"> | null;
+}
+
+export interface StudentGroup {
+  _id: string;
+  classId: string;
+  name: string;
+  description?: string;
+  memberIds: string[];
+  members?: Array<Pick<User, "_id" | "name" | "email"> | null>;
+}
+
+export interface GraderGroup {
+  _id: string;
+  classId: string;
+  name: string;
+  description?: string;
+  graderIds: string[];
+  graders?: Array<Pick<User, "_id" | "name" | "email"> | null>;
+}
+
+export interface GroupBundle {
+  _id: string;
+  classId: string;
+  studentGroupId: string;
+  graderGroupId: string;
+  notes?: string;
+  studentGroup?: StudentGroup | null;
+  graderGroup?: GraderGroup | null;
 }
 
 export interface StudentAssignmentOverview {
@@ -214,6 +243,47 @@ export const api = {
   getClass: (id: string) => request<ClassEntity>(`/classes/${id}`),
   getClassEnrollments: (classId: string) =>
     request<Enrollment[]>(`/classes/${classId}/enrollments`),
+  createStudentGroup: (classId: string, payload: { name: string; description?: string; memberIds?: string[] }) =>
+    request<StudentGroup>(`/classes/${classId}/student-groups`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getStudentGroups: (classId: string) =>
+    request<StudentGroup[]>(`/classes/${classId}/student-groups`),
+  updateStudentGroupMembers: (classId: string, groupId: string, memberIds: string[]) =>
+    request<StudentGroup>(`/classes/${classId}/student-groups/${groupId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ memberIds }),
+    }),
+  createGraderGroup: (
+    classId: string,
+    payload: { name: string; description?: string; graderIds: string[] },
+  ) =>
+    request<GraderGroup>(`/classes/${classId}/grader-groups`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getGraderGroups: (classId: string) =>
+    request<GraderGroup[]>(`/classes/${classId}/grader-groups`),
+  updateGraderGroup: (
+    classId: string,
+    groupId: string,
+    payload: { name?: string; description?: string; graderIds?: string[] },
+  ) =>
+    request<GraderGroup>(`/classes/${classId}/grader-groups/${groupId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  createGroupBundle: (
+    classId: string,
+    payload: { studentGroupId: string; graderGroupId: string; notes?: string },
+  ) =>
+    request<GroupBundle>(`/classes/${classId}/group-bundles`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getGroupBundles: (classId: string) =>
+    request<GroupBundle[]>(`/classes/${classId}/group-bundles`),
   enrollStudentInClass: (
     classId: string,
     payload: { studentId?: string; studentEmail?: string; status?: string },

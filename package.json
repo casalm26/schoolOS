@@ -13,10 +13,15 @@
     "lint:fix": "npm --prefix server run lint -- --fix && npm --prefix client run lint -- --fix",
     "seed": "npm --prefix server run seed"
   },
-  "keywords": ["education", "grading", "trade-school"],
+  "keywords": [
+    "education",
+    "grading",
+    "trade-school"
+  ],
   "author": "Caspian Almerud",
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "vite": "^7.1.7"
   }
 }

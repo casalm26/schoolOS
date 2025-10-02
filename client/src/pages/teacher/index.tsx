@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/router";
 import { Assignment, Grade, GradeStatus, api } from "@/lib/api";
@@ -35,13 +36,36 @@ export default function TeacherWorkspace() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
+
   const [selectedClassId, setSelectedClassId] = useState<string>("");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>("");
-  const [createAssignmentError, setCreateAssignmentError] = useState<string | null>(
-    null,
-  );
+  const [createAssignmentError, setCreateAssignmentError] = useState<string | null>(null);
   const [gradeError, setGradeError] = useState<string | null>(null);
   const [enrollmentError, setEnrollmentError] = useState<string | null>(null);
+  const [studentGroupError, setStudentGroupError] = useState<string | null>(null);
+  const [graderGroupError, setGraderGroupError] = useState<string | null>(null);
+  const [bundleError, setBundleError] = useState<string | null>(null);
+  const [classFormError, setClassFormError] = useState<string | null>(null);
+
+  const [newClassTitle, setNewClassTitle] = useState("");
+  const [newClassCode, setNewClassCode] = useState("");
+  const [newClassCohortId, setNewClassCohortId] = useState<string>("");
+
+  const [newStudentGroupName, setNewStudentGroupName] = useState("");
+  const [newStudentGroupMembers, setNewStudentGroupMembers] = useState<string[]>([]);
+  const [selectedStudentGroupId, setSelectedStudentGroupId] = useState<string>("");
+  const [selectedStudentGroupMembers, setSelectedStudentGroupMembers] = useState<string[]>([]);
+
+  const [newGraderGroupName, setNewGraderGroupName] = useState("");
+  const [newGraderGroupGraders, setNewGraderGroupGraders] = useState<string[]>([]);
+  const [selectedGraderGroupId, setSelectedGraderGroupId] = useState<string>("");
+  const [selectedGraderGroupGraders, setSelectedGraderGroupGraders] = useState<string[]>([]);
+
+  const [selectedBundleStudentGroupId, setSelectedBundleStudentGroupId] = useState<string>("");
+  const [selectedBundleGraderGroupId, setSelectedBundleGraderGroupId] = useState<string>("");
+  const [bundleNotes, setBundleNotes] = useState("");
+
+  const [activeGroupTab, setActiveGroupTab] = useState<"students" | "graders" | "bundles">("students");
 
   useEffect(() => {
     if (!loading && (!user || (user.role !== "teacher" && user.role !== "admin"))) {
@@ -87,6 +111,51 @@ export default function TeacherWorkspace() {
     enabled: Boolean(selectedClassId && user),
   });
 
+  const { data: studentGroups } = useQuery({
+    queryKey: ["studentGroups", selectedClassId],
+    queryFn: () => api.getStudentGroups(selectedClassId),
+    enabled: Boolean(selectedClassId && user),
+  });
+
+  const { data: graderGroups } = useQuery({
+    queryKey: ["graderGroups", selectedClassId],
+    queryFn: () => api.getGraderGroups(selectedClassId),
+    enabled: Boolean(selectedClassId && user),
+  });
+
+  const { data: groupBundles } = useQuery({
+    queryKey: ["groupBundles", selectedClassId],
+    queryFn: () => api.getGroupBundles(selectedClassId),
+    enabled: Boolean(selectedClassId && user),
+  });
+
+  const { data: cohorts } = useQuery({
+    queryKey: ["cohorts", "all"],
+    queryFn: () => api.getCohorts(),
+    enabled: !!user,
+  });
+
+  const availableCohorts = useMemo(() => cohorts ?? [], [cohorts]);
+
+  useEffect(() => {
+    if (!newClassCohortId && availableCohorts.length) {
+      setNewClassCohortId(availableCohorts[0]._id);
+    }
+  }, [availableCohorts, newClassCohortId]);
+
+  const createClassMutation = useMutation({
+    mutationFn: (payload: { cohortId: string; title: string; code: string }) =>
+      api.createClass(payload),
+    onSuccess: (newClass) => {
+      queryClient.invalidateQueries({ queryKey: ["classes"] });
+      setSelectedClassId(newClass._id);
+      setNewClassTitle("");
+      setNewClassCode("");
+      setClassFormError(null);
+    },
+    onError: (error: Error) => setClassFormError(error.message),
+  });
+
   const createAssignment = useMutation({
     mutationFn: (payload: Parameters<typeof api.createAssignment>[1]) =>
       api.createAssignment(selectedClassId, payload),
@@ -124,6 +193,90 @@ export default function TeacherWorkspace() {
     onError: (error: Error) => setEnrollmentError(error.message),
   });
 
+  const createStudentGroupMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof api.createStudentGroup>[1]) =>
+      api.createStudentGroup(selectedClassId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["studentGroups", selectedClassId] });
+      queryClient.invalidateQueries({ queryKey: ["groupBundles", selectedClassId] });
+      setNewStudentGroupName("");
+      setNewStudentGroupMembers([]);
+      setStudentGroupError(null);
+    },
+    onError: (error: Error) => setStudentGroupError(error.message),
+  });
+
+  const updateStudentGroupMembersMutation = useMutation({
+    mutationFn: (variables: { groupId: string; memberIds: string[] }) =>
+      api.updateStudentGroupMembers(selectedClassId, variables.groupId, variables.memberIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["studentGroups", selectedClassId] });
+      queryClient.invalidateQueries({ queryKey: ["groupBundles", selectedClassId] });
+      setStudentGroupError(null);
+    },
+    onError: (error: Error) => setStudentGroupError(error.message),
+  });
+
+  const createGraderGroupMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof api.createGraderGroup>[1]) =>
+      api.createGraderGroup(selectedClassId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["graderGroups", selectedClassId] });
+      queryClient.invalidateQueries({ queryKey: ["groupBundles", selectedClassId] });
+      setNewGraderGroupName("");
+      setNewGraderGroupGraders([]);
+      setGraderGroupError(null);
+    },
+    onError: (error: Error) => setGraderGroupError(error.message),
+  });
+
+  const updateGraderGroupMutation = useMutation({
+    mutationFn: (variables: { groupId: string; graderIds: string[] }) =>
+      api.updateGraderGroup(selectedClassId, variables.groupId, {
+        graderIds: variables.graderIds,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["graderGroups", selectedClassId] });
+      queryClient.invalidateQueries({ queryKey: ["groupBundles", selectedClassId] });
+      setGraderGroupError(null);
+    },
+    onError: (error: Error) => setGraderGroupError(error.message),
+  });
+
+  const createBundleMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof api.createGroupBundle>[1]) =>
+      api.createGroupBundle(selectedClassId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["groupBundles", selectedClassId] });
+      setSelectedBundleStudentGroupId("");
+      setSelectedBundleGraderGroupId("");
+      setBundleNotes("");
+      setBundleError(null);
+    },
+    onError: (error: Error) => setBundleError(error.message),
+  });
+
+  const handleCreateClass = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setClassFormError(null);
+
+    if (!newClassTitle.trim() || !newClassCode.trim()) {
+      setClassFormError("Class title and code are required");
+      return;
+    }
+
+    if (!newClassCohortId) {
+      setClassFormError("Select a cohort");
+      return;
+    }
+
+    createClassMutation.mutate({
+      cohortId: newClassCohortId,
+      title: newClassTitle.trim(),
+      code: newClassCode.trim(),
+    });
+  };
+
   const handleAssignmentCreation = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setCreateAssignmentError(null);
@@ -131,6 +284,7 @@ export default function TeacherWorkspace() {
       setCreateAssignmentError("Select a class first");
       return;
     }
+
     const formData = new FormData(event.currentTarget);
     const title = String(formData.get("title") ?? "").trim();
     const dueAt = String(formData.get("dueAt") ?? "");
@@ -142,7 +296,7 @@ export default function TeacherWorkspace() {
 
     createAssignment.mutate({
       title,
-      description: String(formData.get("description") ?? "") || undefined,
+      description: String(formData.get("description") ?? "") or undefined,
       type: formData.get("type") as Assignment["type"],
       dueAt,
       publishAt: String(formData.get("publishAt") ?? "") || undefined,
@@ -203,6 +357,105 @@ export default function TeacherWorkspace() {
 
     enrollStudent.mutate({ studentEmail });
     event.currentTarget.reset();
+  };
+
+  const handleCreateStudentGroup = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setStudentGroupError(null);
+    if (!selectedClassId) {
+      setStudentGroupError("Select a class first");
+      return;
+    }
+    if (!newStudentGroupName.trim()) {
+      setStudentGroupError("Group name is required");
+      return;
+    }
+
+    createStudentGroupMutation.mutate({
+      name: newStudentGroupName.trim(),
+      memberIds: newStudentGroupMembers,
+    });
+  };
+
+  const handleUpdateStudentGroupMembers = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setStudentGroupError(null);
+    if (!selectedClassId) {
+      setStudentGroupError("Select a class first");
+      return;
+    }
+    if (!selectedStudentGroupId) {
+      setStudentGroupError("Select a student group");
+      return;
+    }
+
+    updateStudentGroupMembersMutation.mutate({
+      groupId: selectedStudentGroupId,
+      memberIds: selectedStudentGroupMembers,
+    });
+  };
+
+  const handleCreateGraderGroup = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setGraderGroupError(null);
+    if (!selectedClassId) {
+      setGraderGroupError("Select a class first");
+      return;
+    }
+    if (!newGraderGroupName.trim()) {
+      setGraderGroupError("Group name is required");
+      return;
+    }
+    if (!newGraderGroupGraders.length) {
+      setGraderGroupError("Select at least one grader");
+      return;
+    }
+
+    createGraderGroupMutation.mutate({
+      name: newGraderGroupName.trim(),
+      graderIds: newGraderGroupGraders,
+    });
+  };
+
+  const handleUpdateGraderGroup = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setGraderGroupError(null);
+    if (!selectedClassId) {
+      setGraderGroupError("Select a class first");
+      return;
+    }
+    if (!selectedGraderGroupId) {
+      setGraderGroupError("Select a grader group");
+      return;
+    }
+    if (!selectedGraderGroupGraders.length) {
+      setGraderGroupError("Select at least one grader");
+      return;
+    }
+
+    updateGraderGroupMutation.mutate({
+      groupId: selectedGraderGroupId,
+      graderIds: selectedGraderGroupGraders,
+    });
+  };
+
+  const handleCreateBundle = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBundleError(null);
+    if (!selectedClassId) {
+      setBundleError("Select a class first");
+      return;
+    }
+    if (!selectedBundleStudentGroupId || !selectedBundleGraderGroupId) {
+      setBundleError("Select both a student group and a grader group");
+      return;
+    }
+
+    createBundleMutation.mutate({
+      studentGroupId: selectedBundleStudentGroupId,
+      graderGroupId: selectedBundleGraderGroupId,
+      notes: bundleNotes || undefined,
+    });
   };
 
   const gradeByStudentId = useMemo(() => {
@@ -266,6 +519,9 @@ export default function TeacherWorkspace() {
                 {selectedClass ? selectedClass.code : "Choose a class to get started."}
               </p>
             </div>
+          </div>
+          <div className="rounded-full border border-white/10 bg-slate-900/70 px-4 py-2 text-sm text-slate-300">
+            Signed in as <span className="text-white">{user.name ?? user.email}</span>
           </div>
         </div>
       </header>
@@ -372,6 +628,9 @@ export default function TeacherWorkspace() {
                           <p className="text-xs text-slate-400">
                             Due {formatDate(assignment.dueAt)} • {assignment.type}
                           </p>
+                          {assignment.description && (
+                            <p className="mt-2 text-xs text-slate-300">{assignment.description}</p>
+                          )}
                         </div>
                         <span className="rounded-full border border-white/10 bg-slate-900 px-3 py-1 text-xs uppercase tracking-wide text-slate-200">
                           {assignment.gradingSchema}
@@ -434,7 +693,7 @@ export default function TeacherWorkspace() {
                     id="assignment-type"
                     name="type"
                     defaultValue="task"
-                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text_white focus:border-emerald-500 focus:outline-none"
                   >
                     <option value="task">Task</option>
                     <option value="project">Project</option>
@@ -449,7 +708,7 @@ export default function TeacherWorkspace() {
                     id="assignment-grading"
                     name="gradingSchema"
                     defaultValue="points"
-                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   >
                     <option value="points">Points</option>
                     <option value="percentage">Percentage</option>
@@ -464,7 +723,7 @@ export default function TeacherWorkspace() {
                     id="assignment-due"
                     type="date"
                     name="dueAt"
-                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -475,7 +734,7 @@ export default function TeacherWorkspace() {
                     id="assignment-publish"
                     type="date"
                     name="publishAt"
-                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -487,20 +746,18 @@ export default function TeacherWorkspace() {
                     type="number"
                     name="maxPoints"
                     defaultValue={100}
-                    className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
                 {createAssignmentError && (
-                  <p className="md:col-span-2 text-sm text-red-400">
-                    {createAssignmentError}
-                  </p>
+                  <p className="md:col-span-2 text-sm text-red-400">{createAssignmentError}</p>
                 )}
                 <button
                   type="submit"
                   disabled={createAssignment.isPending}
-                  className="md:col-span-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-emerald-400 disabled:opacity-50"
+                  className="md:col-span-2 rounded-md bg-emerald-500 px-4 py-2 text-sm font_medium text-black transition hover:bg-emerald-400 disabled:opacity-50"
                 >
-                  {createAssignment.isPending ? "Creating…" : "Add assignment"}
+                  {createAssignment.isPending ? "Publishing…" : "Publish assignment"}
                 </button>
               </form>
             </div>
@@ -543,7 +800,7 @@ export default function TeacherWorkspace() {
                     return (
                       <div
                         key={enrollment._id}
-                        className="rounded-lg border border-white/5 bg-slate-950/60 px-4 py-3 text-xs"
+                        className="rounded-lg border border-white/5 bg-slate-950/60 px-4 py-3 text-sm"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="font-semibold text-white">
@@ -571,9 +828,10 @@ export default function TeacherWorkspace() {
                     );
                   })
                 ) : (
-                  <p className="text-sm text-slate-400">
-                    No students enrolled yet.
-                  </p>
+                  <EmptyState
+                    title="No students enrolled"
+                    description="Invite learners by email to start grading."
+                  />
                 )}
               </div>
             </div>
