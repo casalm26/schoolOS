@@ -14,8 +14,19 @@ export class AssignmentsService {
     private readonly classesService: ClassesService,
   ) {}
 
-  async create(classId: string, dto: CreateAssignmentDto) {
-    await this.classesService.getClassById(classId);
+  async create(
+    classId: string,
+    dto: CreateAssignmentDto,
+    options: { restrictToInstructorId?: string } = {},
+  ) {
+    if (options.restrictToInstructorId) {
+      await this.classesService.ensureInstructorAccess(
+        classId,
+        options.restrictToInstructorId,
+      );
+    } else {
+      await this.classesService.getClassById(classId);
+    }
 
     const assignment = new this.assignmentModel({
       classId,
@@ -32,8 +43,18 @@ export class AssignmentsService {
     return assignment.toObject();
   }
 
-  async listForClass(classId: string) {
-    await this.classesService.getClassById(classId);
+  async listForClass(
+    classId: string,
+    options: { restrictToInstructorId?: string } = {},
+  ) {
+    if (options.restrictToInstructorId) {
+      await this.classesService.ensureInstructorAccess(
+        classId,
+        options.restrictToInstructorId,
+      );
+    } else {
+      await this.classesService.getClassById(classId);
+    }
     return this.assignmentModel
       .find({ classId })
       .sort({ dueAt: 1 })
@@ -52,8 +73,25 @@ export class AssignmentsService {
     return assignment;
   }
 
-  async update(assignmentId: string, dto: UpdateAssignmentDto) {
-    await this.findById(assignmentId);
+  async ensureInstructorAccess(assignmentId: string, instructorId: string) {
+    const assignment = await this.findById(assignmentId);
+    await this.classesService.ensureInstructorAccess(
+      assignment.classId.toString(),
+      instructorId,
+    );
+    return assignment;
+  }
+
+  async update(
+    assignmentId: string,
+    dto: UpdateAssignmentDto,
+    options: { restrictToInstructorId?: string } = {},
+  ) {
+    if (options.restrictToInstructorId) {
+      await this.ensureInstructorAccess(assignmentId, options.restrictToInstructorId);
+    } else {
+      await this.findById(assignmentId);
+    }
     const update: Record<string, any> = {};
     if (dto.title !== undefined) update.title = dto.title;
     if (dto.description !== undefined) update.description = dto.description;

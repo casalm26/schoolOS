@@ -5,6 +5,7 @@ import { Assignment, AssignmentSchema } from '../assignments/schemas/assignment.
 import { Enrollment, EnrollmentSchema } from '../classes/schemas/enrollment.schema';
 import { UsersModule } from '../users/users.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ClassEntity, ClassSchema } from '../classes/schemas/class.schema';
 import { GradesController } from './grades.controller';
 import { GradesService } from './grades.service';
 import { Grade, GradeSchema } from './schemas/grade.schema';
@@ -15,6 +16,7 @@ import { Grade, GradeSchema } from './schemas/grade.schema';
       { name: Grade.name, schema: GradeSchema },
       { name: Assignment.name, schema: AssignmentSchema },
       { name: Enrollment.name, schema: EnrollmentSchema },
+      { name: ClassEntity.name, schema: ClassSchema },
     ]),
     AssignmentsModule,
     UsersModule,

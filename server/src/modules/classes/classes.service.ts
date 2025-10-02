@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -116,8 +117,27 @@ export class ClassesService {
     return record;
   }
 
-  async enrollStudent(classId: string, dto: EnrollStudentDto) {
-    await this.getClassById(classId);
+  async ensureInstructorAccess(classId: string, instructorId: string) {
+    const classRecord = await this.getClassById(classId);
+    const instructorIds = (classRecord.instructorIds ?? []).map((id: any) =>
+      typeof id === 'string' ? id : id.toString(),
+    );
+    if (!instructorIds.includes(instructorId)) {
+      throw new ForbiddenException('You are not assigned to this class');
+    }
+    return classRecord;
+  }
+
+  async enrollStudent(
+    classId: string,
+    dto: EnrollStudentDto,
+    options: { restrictToInstructorId?: string } = {},
+  ) {
+    if (options.restrictToInstructorId) {
+      await this.ensureInstructorAccess(classId, options.restrictToInstructorId);
+    } else {
+      await this.getClassById(classId);
+    }
 
     let studentId = dto.studentId;
     if (!studentId && dto.studentEmail) {
@@ -146,8 +166,15 @@ export class ClassesService {
     return enrollment;
   }
 
-  async listEnrollments(classId: string) {
-    await this.getClassById(classId);
+  async listEnrollments(
+    classId: string,
+    options: { restrictToInstructorId?: string } = {},
+  ) {
+    if (options.restrictToInstructorId) {
+      await this.ensureInstructorAccess(classId, options.restrictToInstructorId);
+    } else {
+      await this.getClassById(classId);
+    }
     const enrollments = await this.enrollmentModel.find({ classId }).lean().exec();
     if (!enrollments.length) {
       return [];

@@ -28,14 +28,15 @@ export class ClassesController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Admin, UserRole.Teacher)
   listClasses(
     @CurrentUser() user: RequestUser,
     @Query('cohortId') cohortId?: string,
     @Query('instructorId') instructorId?: string,
   ) {
     const filters: Record<string, string | undefined> = { cohortId };
-    if (user?.role === UserRole.Teacher && !instructorId) {
+    if (user.role === UserRole.Teacher) {
       filters.instructorId = user.userId;
     } else if (instructorId) {
       filters.instructorId = instructorId;
@@ -52,14 +53,27 @@ export class ClassesController {
   @Post(':id/enrollments')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.Admin, UserRole.Teacher)
-  enrollStudent(@Param('id') classId: string, @Body() dto: EnrollStudentDto) {
-    return this.classesService.enrollStudent(classId, dto);
+  enrollStudent(
+    @Param('id') classId: string,
+    @Body() dto: EnrollStudentDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    const options =
+      user.role === UserRole.Teacher
+        ? { restrictToInstructorId: user.userId }
+        : undefined;
+    return this.classesService.enrollStudent(classId, dto, options);
   }
 
   @Get(':id/enrollments')
-  @UseGuards(JwtAuthGuard)
-  listEnrollments(@Param('id') classId: string) {
-    return this.classesService.listEnrollments(classId);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Admin, UserRole.Teacher)
+  listEnrollments(@Param('id') classId: string, @CurrentUser() user: RequestUser) {
+    const options =
+      user.role === UserRole.Teacher
+        ? { restrictToInstructorId: user.userId }
+        : undefined;
+    return this.classesService.listEnrollments(classId, options);
   }
 
   @Post(':id/student-groups')
