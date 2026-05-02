@@ -8,6 +8,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { GradesController } from './grades.controller';
 import { GradesService } from './grades.service';
 import { Grade, GradeSchema } from './schemas/grade.schema';
+import { CourseGrade, CourseGradeSchema } from './schemas/course-grade.schema';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { Grade, GradeSchema } from './schemas/grade.schema';
       { name: Grade.name, schema: GradeSchema },
       { name: Assignment.name, schema: AssignmentSchema },
       { name: Enrollment.name, schema: EnrollmentSchema },
+      { name: CourseGrade.name, schema: CourseGradeSchema },
     ]),
     AssignmentsModule,
     UsersModule,

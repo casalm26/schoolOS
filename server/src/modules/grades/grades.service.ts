@@ -9,6 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { ReleaseGradeDto } from './dto/release-grade.dto';
 import { UpsertGradeDto } from './dto/upsert-grade.dto';
 import { Grade, GradeDocument, GradeStatus } from './schemas/grade.schema';
+import { CourseGrade, CourseGradeDocument } from './schemas/course-grade.schema';
 
 @Injectable()
 export class GradesService {
@@ -19,6 +20,8 @@ export class GradesService {
     private readonly assignmentModel: Model<AssignmentDocument>,
     @InjectModel(Enrollment.name)
     private readonly enrollmentModel: Model<EnrollmentDocument>,
+    @InjectModel(CourseGrade.name)
+    private readonly courseGradeModel: Model<CourseGradeDocument>,
     private readonly assignmentsService: AssignmentsService,
     private readonly usersService: UsersService,
     private readonly notificationsService: NotificationsService,
@@ -186,4 +189,42 @@ export class GradesService {
         };
       });
   }
+
+  async upsertCourseGrade(classId: string, dto: { studentId: string; letterGrade?: string; score?: number; feedback?: string; actorId?: string }) {
+    await this.usersService.findById(dto.studentId);
+
+    const enrollment = await this.enrollmentModel.findOne({ classId, studentId: dto.studentId }).lean().exec();
+    if (!enrollment) {
+      throw new NotFoundException('Student is not enrolled in this class');
+    }
+
+    return this.courseGradeModel.findOneAndUpdate(
+      { classId, studentId: dto.studentId },
+      {
+        $set: {
+          letterGrade: dto.letterGrade ?? null,
+          score: dto.score ?? null,
+          feedback: dto.feedback ?? '',
+          gradedBy: dto.actorId ?? null,
+        },
+        $setOnInsert: { classId, studentId: dto.studentId },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    ).lean().exec();
+  }
+
+  async listCourseGradesForClass(classId: string) {
+    const grades = await this.courseGradeModel.find({ classId }).lean().exec();
+    if (!grades.length) return [];
+
+    const students = await this.usersService.findManyByIds(Array.from(new Set(grades.map((g) => g.studentId.toString()))));
+    const studentsById = new Map(students.map((student) => [student._id.toString(), student]));
+    return grades.map((grade) => ({ ...grade, student: studentsById.get(grade.studentId.toString()) ?? null }));
+  }
+
+  async listCourseGradesForStudent(studentId: string) {
+    await this.usersService.findById(studentId);
+    return this.courseGradeModel.find({ studentId }).lean().exec();
+  }
+
 }

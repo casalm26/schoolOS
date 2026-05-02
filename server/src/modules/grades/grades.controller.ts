@@ -12,6 +12,35 @@ import { CurrentUser, RequestUser } from '../auth/current-user.decorator';
 export class GradesController {
   constructor(private readonly gradesService: GradesService) {}
 
+
+
+  @Post('classes/:classId/course-grades')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Admin, UserRole.Teacher)
+  upsertCourseGrade(
+    @Param('classId') classId: string,
+    @Body() dto: { studentId: string; letterGrade?: string; score?: number; feedback?: string },
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.gradesService.upsertCourseGrade(classId, { ...dto, actorId: user.userId });
+  }
+
+  @Get('classes/:classId/course-grades')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Admin, UserRole.Teacher)
+  listCourseGradesForClass(@Param('classId') classId: string) {
+    return this.gradesService.listCourseGradesForClass(classId);
+  }
+
+  @Get('students/:studentId/course-grades')
+  @UseGuards(JwtAuthGuard)
+  getCourseGradesForStudent(@Param('studentId') studentId: string, @CurrentUser() user: RequestUser) {
+    if (user.role === UserRole.Student && user.userId !== studentId) {
+      throw new ForbiddenException('Cannot view other students grades');
+    }
+    return this.gradesService.listCourseGradesForStudent(studentId);
+  }
+
   @Post('assignments/:assignmentId/grades')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.Admin, UserRole.Teacher)

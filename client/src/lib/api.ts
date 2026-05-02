@@ -166,6 +166,16 @@ export interface GroupBundle {
   graderGroup?: GraderGroup | null;
 }
 
+export interface CourseGradeRecord {
+  _id: string;
+  classId: string;
+  studentId: string;
+  letterGrade?: string | null;
+  score?: number | null;
+  feedback?: string;
+  student?: Pick<User, "_id" | "name" | "email"> | null;
+}
+
 export interface StudentAssignmentOverview {
   assignmentId: string;
   classId: string;
@@ -341,4 +351,13 @@ export const api = {
     request<Grade[]>(`/students/${studentId}/grades`),
   getStudentAssignments: (studentId: string) =>
     request<StudentAssignmentOverview[]>(`/students/${studentId}/assignments`),
+  getCourseGradesForClass: (classId: string) =>
+    request<CourseGradeRecord[]>(`/classes/${classId}/course-grades`),
+  upsertCourseGrade: (classId: string, payload: { studentId: string; letterGrade?: string; score?: number; feedback?: string }) =>
+    request<CourseGradeRecord>(`/classes/${classId}/course-grades`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getCourseGradesForStudent: (studentId: string) =>
+    request<CourseGradeRecord[]>(`/students/${studentId}/course-grades`),
 };
